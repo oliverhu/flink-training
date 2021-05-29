@@ -89,7 +89,6 @@ public class HourlyTipsTest extends TaxiRideTestBase<Tuple3<Long, Long, Float>> 
 		Tuple3<Long, Long, Float> hour2 = Tuple3.of(t(120).toEpochMilli(), 2L, 20.0F);
 
 		List<Tuple3<Long, Long, Float>> expected = Arrays.asList(hour1, hour2);
-
 		assertEquals(expected, results(source));
 	}
 
