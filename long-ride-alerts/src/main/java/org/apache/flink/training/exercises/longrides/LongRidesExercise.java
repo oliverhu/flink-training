@@ -18,6 +18,12 @@
 
 package org.apache.flink.training.exercises.longrides;
 
+import org.apache.flink.api.common.state.MapState;
+import org.apache.flink.api.common.state.MapStateDescriptor;
+import org.apache.flink.api.common.state.ValueState;
+import org.apache.flink.api.common.state.ValueStateDescriptor;
+import org.apache.flink.api.common.time.Time;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.TimerService;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -32,8 +38,9 @@ import org.apache.flink.util.Collector;
 /**
  * The "Long Ride Alerts" exercise of the Flink training in the docs.
  *
- * <p>The goal for this exercise is to emit START events for taxi rides that have not been matched
- * by an END event during the first 2 hours of the ride.
+ * <p>
+ * The goal for this exercise is to emit START events for taxi rides that have
+ * not been matched by an END event during the first 2 hours of the ride.
  *
  */
 public class LongRidesExercise extends ExerciseBase {
@@ -52,9 +59,7 @@ public class LongRidesExercise extends ExerciseBase {
 		// start the data generator
 		DataStream<TaxiRide> rides = env.addSource(rideSourceOrTest(new TaxiRideGenerator()));
 
-		DataStream<TaxiRide> longRides = rides
-				.keyBy((TaxiRide ride) -> ride.rideId)
-				.process(new MatchFunction());
+		DataStream<TaxiRide> longRides = rides.keyBy((TaxiRide ride) -> ride.rideId).process(new MatchFunction());
 
 		printOrTest(longRides);
 
@@ -62,19 +67,36 @@ public class LongRidesExercise extends ExerciseBase {
 	}
 
 	public static class MatchFunction extends KeyedProcessFunction<Long, TaxiRide, TaxiRide> {
+		private transient ValueState<TaxiRide> driverStart;
 
 		@Override
-		public void open(Configuration config) throws Exception {
-			throw new MissingSolutionException();
+		public void open(Configuration config) {
+			ValueStateDescriptor<TaxiRide> driverStartDesc = new ValueStateDescriptor<>("driverStart", TaxiRide.class);
+			driverStart = getRuntimeContext().getState(driverStartDesc);
 		}
 
 		@Override
 		public void processElement(TaxiRide ride, Context context, Collector<TaxiRide> out) throws Exception {
 			TimerService timerService = context.timerService();
+			TaxiRide startEvent = driverStart.value();
+
+			if (startEvent == null) {
+				driverStart.update(ride);
+				if (ride.isStart) {
+					timerService.registerEventTimeTimer(ride.startTime.plusSeconds(120 * 60L).toEpochMilli());
+				} else {
+				// Skip if end event comes earlier.
+				}
+			} else {
+				if (!ride.isStart) {
+					timerService.deleteEventTimeTimer(startEvent.startTime.plusSeconds(120 * 60L).toEpochMilli());
+				}
+			}
 		}
 
 		@Override
 		public void onTimer(long timestamp, OnTimerContext context, Collector<TaxiRide> out) throws Exception {
+			out.collect(driverStart.value());
 		}
 	}
 }
